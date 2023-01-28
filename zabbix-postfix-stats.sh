@@ -3,10 +3,8 @@
 MAILLOG=/var/log/mail.log
 PFOFFSETFILE=/tmp/zabbix-postfix-offset.dat
 PFSTATSFILE=/tmp/postfix_statsfile.dat
-TEMPFILE=$(mktemp)
 PFLOGSUMM=/usr/sbin/pflogsumm
-PYGTAIL=/usr/sbin/pygtail.py
-
+PYGTAIL=/bin/pygtail
 # list of values we are interested in
 PFVALS=( 'received' 'delivered' 'forwarded' 'deferred' 'bounced' 'rejected' 'held' 'discarded' 'reject_warnings' 'bytes_received' 'bytes_delivered' )
 
@@ -14,6 +12,7 @@ PFVALS=( 'received' 'delivered' 'forwarded' 'deferred' 'bounced' 'rejected' 'hel
 write_result () {
 
         echo "$2"
+	rm "${TEMPFILE}"
         exit $1
 
 }
@@ -34,13 +33,14 @@ if [ ! -r ${MAILLOG} ] ; then
         exit 1
 fi
 
+TEMPFILE=$(mktemp)
 
 # check whether file exists and the write permissions are granted
 if [ ! -w "${PFSTATSFILE}" ]; then
-        touch "${PFSTATSFILE}" && chown zabbix:zabbix "${PFSTATSFILE}" > /dev/null 2>&1
+        touch "${PFSTATSFILE}" 
 
         if [ ! $? -eq 0 ]; then
-                result_text="ERROR: wrong exit code returned while creating file ${PFSTATSFILE} and setting its owner to zaabbix:zabbix"
+                result_text="ERROR: wrong exit code returned while creating file ${PFSTATSFILE} and setting its owner to zabbix:zabbix"
                 result_code="1"
                 write_result "${result_code}" "${result_text}"
         fi
@@ -48,6 +48,7 @@ fi
 
 # read specific value from data file and print it
 readvalue () {
+
         local $key
         key=$(echo ${PFVALS[@]} | grep -wo $1)
         if [ -n "${key}" ]; then
@@ -55,7 +56,6 @@ readvalue () {
                 echo "${value}"
 
         else
-                rm "${TEMPFILE}"
                 result_text="ERROR: could not get value \"$1\" from ${PFSTATSFILE}"
                 result_code="1"
                 write_result "${result_code}" "${result_text}"
@@ -78,6 +78,7 @@ updatevalue() {
         if [ -n "${old_value}" ]; then
                 sed -i -e "s/^${key};${old_value}/${key};$((${old_value}+${value}))/" "${PFSTATSFILE}"
         else
+
                 echo "${key};${value}" >> "${PFSTATSFILE}"
 
         fi
@@ -88,10 +89,10 @@ if [ -n "$1" ]; then
         readvalue "$1"
 else
         # read the new part of mail log and read it with pflogsumm to get the summary
-        "${PYGTAIL}" -o"${PFOFFSETFILE}" "${MAILLOG}" | "${PFLOGSUMM}" -h 0 -u 0 --no_bounce_detail --no_deferral_detail --no_reject_detail --no_smtpd_warnings --no_no_msg_size > "${TEMPFILE}" 2>/dev/null
+        "${PYGTAIL}" -o"${PFOFFSETFILE}" "${MAILLOG}" | "${PFLOGSUMM}" -h 0 -u 0 --bounce-detail=0 --deferral-detail=0 --reject-detail=0 --smtpd-warning-detail=0 --no_no_msg_size > "${TEMPFILE}" 2>/dev/null
 
         if [ ! $? -eq 0 ]; then
-                result_text="ERROR: wrong exit code returned while running  \"${PYGTAIL}\" -o\"${PFOFFSETFILE}\" \"${MAILLOG}\" | \"${PFLOGSUMM}\" -h 0 -u 0 --no_bounce_detail --no_deferral_detail --no_reject_detail --no_smtpd_warnings --no_no_msg_size > \"${TEMPFILE}\" 2>/dev/null"
+                result_text="ERROR: wrong exit code returned while running  \"${PYGTAIL}\" -o\"${PFOFFSETFILE}\" \"${MAILLOG}\" | \"${PFLOGSUMM}\" -h 0 -u 0 --bounce-detail=0 --deferral-detail=0 --reject-detail=0 --smtpd-warning-detail=0 --no_no_msg_size > \"${TEMPFILE}\" 2>/dev/null"
                 result_code="1"
                 write_result "${result_code}" "${result_text}"
         fi
@@ -100,7 +101,6 @@ else
         for i in "${PFVALS[@]}"; do
                 updatevalue "$i"
         done
-
         result_text="OK: statistics updated"
         result_code="0"
         write_result "${result_code}" "${result_text}"
